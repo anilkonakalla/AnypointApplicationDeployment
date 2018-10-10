@@ -3,8 +3,7 @@ var http = require('https'),
     FormData = require('form-data'),
     fs = require('fs'),
     task = require('vsts-task-lib/task');
-var ORG_ID_FLAG = false;
-var ORGANIZATION_ID = '';
+
 // * * * LOGIN * * * //
 var BEARER_TOKEN = undefined;
 var BASIC_AUTH = undefined;
@@ -35,39 +34,25 @@ exports.getEnvironments = function(organizationId) {
 }
 exports.setEnvironmentId = function(environmentId) {
     ENVIRONMENT_ID = environmentId;
-    
-}
-
-// * * * Get Target ID (Servers, Server Groups) * * * //
-
-exports.getTargetId = function(targettype) {
-    var path = '/hybrid/api/v1/'+ targettype;
-    //console.log("Target Type :" + targettype);
-    ORG_ID_FLAG = true;
-    return createRequest('GET', path, undefined, undefined, 'bearer');
 }
 
 // * * * APPLICATIONS * * * //
-
-exports.deployOnpremApp = function(domainName, filePath,appId) {
-    var path = '/hybrid/api/v1/applications/'+ appId;
-    console.log(path);
+exports.deployApp = function(domainName, filePath) {
+    var path = '/cloudhub/api/v2/applications/'+ domainName + '/files';
     console.log(filePath);
     var form = new FormData();
     form.append('file', fs.createReadStream(filePath));
-    ORG_ID_FLAG = true;
-    return createRequest('PATCH', path, form, form.getHeaders(), 'bearer');
+    return createRequest('POST', path, form, form.getHeaders(), 'basic', true);
 }
 
-exports.createNewOnpremApp = function(domainName, filePath, targetId, workerOptions, autoStart) {
-    var path = '/hybrid/api/v1/applications';
-    console.log(typeof filePath);
-    //console.log(fs.statSync(filePath).isFile());
+exports.createNewApp = function(domainName, filePath, workerOptions, autoStart) {
+    var path = '/cloudhub/api/v2/applications';
+    console.log(filePath);
     var form = new FormData();
-    form.append('artifactName', domainName);
-    form.append('targetId', targetId);
+    form.append('appInfoJson', JSON.stringify(workerOptions));
+    form.append('autoStart', autoStart || 'true');
     form.append('file', fs.createReadStream(filePath));
-    return createRequest('POST', path, form, form.getHeaders(), 'bearer');
+    return createRequest('POST', path, form, form.getHeaders(), 'basic');
 }
 
 exports.setProperties = function() {
@@ -80,17 +65,8 @@ exports.setProperties = function() {
 }
 
 exports.getApplication = function(domainName) {
-    var path = '/hybrid/api/v1/applications/' + domainName;
-    ORG_ID_FLAG = true;
-    return createRequest('GET', path, undefined, undefined, 'bearer')
-}
-
-exports.getOnPremApplications = function(orgID,orgIdFlag) {
-
-    var path = '/hybrid/api/v1/applications/';
-    ORG_ID_FLAG = orgIdFlag;
-ORGANIZATION_ID = orgID;
-    return createRequest('GET', path, undefined, undefined, 'bearer')
+    var path = '/cloudhub/api/v2/applications/' + domainName;
+    return createRequest('GET', path, undefined, undefined, 'basic')
 }
 
 
@@ -103,24 +79,13 @@ function createRequest(method, path, body, headers, authType, noResponse) {
         headers: headers || {}
     };
     console.log(path);
-    //console.log(body);
     setStaticHeaders(options, authType);
-    console.log("method : " + options.method);
-    console.log("host : " + options.host);
-    console.log("path : " + options.path);
-
-    
     var isJsonBody = body && body.constructor == {}.constructor;
     var isFormBody = body && !isJsonBody;
-    if (isJsonBody || isJsonBody == undefined) {
-        //console.log("is Json Body");
+    if (isJsonBody) {
         options.headers['Content-Type'] = 'application/json';
     }
-       if(method == 'PATCH'){
-    console.log("Authorization : " + headers['Authorization']);
-    console.log("X-ANYPNT-ENV-ID : " + headers['X-ANYPNT-ENV-ID']);
-    console.log("X-ANYPNT-ORG-ID : " + headers['X-ANYPNT-ORG-ID']);
-    }
+    
     return new Promise(function(success, failure) {
         var req = http.request(options);
         if (isJsonBody)
@@ -130,7 +95,7 @@ function createRequest(method, path, body, headers, authType, noResponse) {
         
         req.on('response', function(response) {
             var responseMessage = response.statusCode + ' ' + response.statusMessage;
-            if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 202) {
+            if (response.statusCode == 200 || response.statusCode == 201) {
                 
                 if (!noResponse) {
                     var responseBody = '';
@@ -139,12 +104,10 @@ function createRequest(method, path, body, headers, authType, noResponse) {
                     });
                     response.on('end', function(){
                         var parsedBody = JSON.parse(responseBody);
-                        //console.log(responseBody)
                         success(parsedBody);
                     });
                 }
                 else {
-                    console.log(responseMessage);
                     success(responseMessage);
                 }
             }
@@ -152,15 +115,11 @@ function createRequest(method, path, body, headers, authType, noResponse) {
                 success(undefined);
             }
             else {
-                console.log("in failure block");
-                //console.log(response);
                 failure(response);
             }
         });
     
         req.on('error', function(error) {
-            console.log("in error block");
-            console.log("error :" + error);
             var responseMessage = error.name + ' ERROR: ' + error.message;
             failure(responseMessage);
         });
@@ -178,8 +137,5 @@ function setStaticHeaders(options, authType) {
     }
     if (ENVIRONMENT_ID) {
         options.headers['X-ANYPNT-ENV-ID'] = ENVIRONMENT_ID;
-    }
-    if(ORG_ID_FLAG){
-        options.headers['X-ANYPNT-ORG-ID'] = ORGANIZATION_ID;
     }
 }
