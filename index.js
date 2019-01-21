@@ -8,6 +8,12 @@ var cloudhubService = require('./cloudhub-service-v2.js'),
 
 task._writeLine('Getting configuration...');
 var config = getConfiguration();
+var env_id;
+var org_id;
+var env_props = {};
+var targetEnvId;
+var sourceEnvId;
+
 
 task._writeLine('Authenticating credentials with AnyPoint Platform...');
 cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).then(tokenResponse => {
@@ -23,17 +29,21 @@ cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).
     var userOrg = accountResponse.user.organization;
     task._writeLine('Setting organization to ' + userOrg.name + ' with ID of ' + userOrg.id);
     task._writeLine('Getting list of environments...');
+    org_id = userOrg.id;
     return cloudhubService.getEnvironments(userOrg.id);
 })
 .then(function(environmentsResponse) {
     task._writeLine('Finding specified environment...');
     var environmentId = getSpecifiedEnvironmentId(environmentsResponse.data, config.environmentname);
+    env_id = environmentId;
     cloudhubService.setEnvironmentId(environmentId);
     
     task._writeLine('Getting application status for ' + config.domainname);
-    return cloudhubService.getApplication(config.domainname);
+    return cloudhubService.getApplications(env_id,org_id);
+      
 })
-.then(function(appStatus) {
+.then(function(applicationRespose) {
+   var appStatus =  getAppDetails(applicationRespose);
     if (appStatus) {
         task._writeLine('Application found!');
         task._writeLine('Redeploying...');
@@ -53,6 +63,22 @@ cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).
     else {
         task.setResult(task.TaskResult.Succeeded, 'Application has been created successfully, but must be manually started.');
     }
+}).then(function(){
+    if(config.apiAutoDiscoveryID != null || config.apiAutoDiscoveryID != ""){
+        console.log("init API promotion started for the API:" + config.apiAutoDiscoveryID);
+        //getAppDetails(cloudhubService.getApplications(env_id,org_id));
+        return cloudhubService.getApplications(sourceEnvId,org_id);
+        //promtApi();
+    }else{
+        task.setResult(task.TaskResult.Failed, "No Api Id found for the API Auto Discovery");    
+    }
+    //return getAppDetails(cloudhubService.getApplications(env_id,org_id));
+}).then(function(applicationResponse){
+    getAppDetails(applicationResponse);
+    //promtApi();
+    return cloudhubService.promtApi(config.apiAutoDiscoveryID,org_id,env_id);
+}).then(function(){
+    console.log("END!!");
 })
 .catch(function(error){
     console.log('GLOBAL ERROR HANDLER');
@@ -68,7 +94,17 @@ cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).
 function getSpecifiedEnvironmentId(environments, environmentNameToFind) {
     var specifiedEnvName = environmentNameToFind.toLowerCase();
     for (var i = 0; i < environments.length; i++) {
+        env_props[environments[i].name.toLowerCase()] = environments[i].id;
+    }
+    if(specifiedEnvName == "uat"){
+        sourceEnvId = env_props.development;
+    }
+    
+    for (var i = 0; i < environments.length; i++) {
+        
         var environment = environments[i];
+        console.log(environment.name.toLowerCase());
+        
         task._writeLine('Environment found: ' + environment.name);
         if (environment.name.toLowerCase() == specifiedEnvName) {
             return environment.id;
@@ -76,6 +112,57 @@ function getSpecifiedEnvironmentId(environments, environmentNameToFind) {
     }
     task.setResult(task.TaskResult.Failed, 'Could not find any environment matching ' + environmentNameToFind);
     // TODO: Throw error here - no matching environment found
+}
+
+function getAppDetails(applications){
+    console.log("in the get app details methos with the application response as: " + JSON.stringify(applications));
+
+    for(var i = 0; i < applications.assets.length; i++){
+        for(var j = 0; j < applications.assets[i].apis.length; j++){
+            console.log(applications.assets[i].apis[j].id);
+            console.log(config.apiAutoDiscoveryID);
+            if(applications.assets[i].apis[j].id == config.apiAutoDiscoveryID){
+                if(config.environmentname == "Development"){
+                    targetEnvId = env_props.uat
+                }
+                else if(config.environmentname == "UAT"){
+                    sourceEnvId = env_props.development;
+                    targetEnvId = env_props.staging;
+                }else if(config.environmentname == "Staging"){
+                    targetEnvId = env_props.production
+                }
+                return true;
+            }else {
+                return false;
+            }
+        }
+    }
+    console.log("design_env" + ' ' + env_props.design);
+    console.log("uat_env" + ' ' + env_props.uat);
+    console.log("staging_env" + ' ' + env_props.staging);
+    console.log("dev_env" + ' ' + env_props.development);
+    console.log("production_env" + ' ' + env_props.production);
+    console.log("target_env_id" + ' ' + targetEnvId);
+}
+
+function promtApi(apiId,org_id,targetEnvId){
+    console.log("in the promtApi method");
+    promotObj["promote"] = {
+        "originApiId" : config.apiAutoDiscoveryID,
+        "policies" : {
+            "allEntities" : true
+        },
+        "tiers" : {
+            "allEntities" : true
+        },
+        "alerts" : {
+            "allEntities": true
+        }
+    }
+    console.log("promote Object" + promotObj);
+    var path = '/apimanager/api/v1/organizations/'+ org_id +'/environments/' + targetEnvId +'/apis'
+    console.log("path" + path);
+    cloudhubService.createRequest('POST', path, promotObj, undefined, 'bearer');
 }
 
 // * * * APPLICATION STATUS * * * //
@@ -103,7 +190,7 @@ function getStatus(domainName) {
                 if (status == 'UNDEPLOYED') {}
                 else if (status == 'STARTED') {
                     clearInterval(statusInterval);
-                    task.setResult(task.TaskResult.Succeeded, 'Application deployed successfully!');
+                    //task.setResult(task.TaskResult.Succeeded, 'Application deployed successfully!');
                 }
                 else if (status == 'DEPLOYED_FAILED') {
                     task._writeLine('Application deployment FAILED');
@@ -140,7 +227,8 @@ function getConfiguration() {
       
         'workersize': task.getInput('workersize', false),
         'muleversion': task.getInput('muleversion'),
-        'autostart': task.getInput('autostart') || 'true'
+        'autostart': task.getInput('autostart') || 'true',
+        'apiAutoDiscoveryID' : task.getInput('apiAutoDiscoveryID')
     };
     toReturn['appInfo'] = getNewAppInfo(domainName);
     return toReturn;

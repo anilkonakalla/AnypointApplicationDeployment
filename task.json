@@ -1,15 +1,15 @@
 {
-    "id": "8e66a2d1-13ef-4b89-97f1-d104ac035a51",
-    "name": "testCloud",
-    "friendlyName": "Anypoint Cloud Deploy",
+    "id": "215336f0-1a23-11e9-9f32-35e3a49c38e6",
+    "name": "MuleAPIPromotion",
+    "friendlyName": "Anypoint RTF Cloud Deploy",
     "description": "Deploy to AnyPoint CloudHub",
     "helpMarkDown": "",
     "category": "Deploy",
     "author": "Anil Konakala",
     "version": {
-        "Major": 1,
-        "Minor": 1,
-        "Patch": 3
+        "Major": 2,
+        "Minor": 0,
+        "Patch": 4
     },
     "instanceNameFormat": "Deploying Application to AnyPoint",
     "groups": [
@@ -56,6 +56,14 @@
             "defaultValue": "",
             "required": true,
             "helpMarkDown": "e.g. dev, test, prod"
+        },
+        {
+            "name": "apiAutoDiscoveryID",
+            "type": "string",
+            "label": "API AUTO DISCOVERY ID",
+            "defaultValue": "",
+            "required": false,
+            "helpMarkDown": "e.g. 1204567"
         },
         {
             "name": "zipfilename",

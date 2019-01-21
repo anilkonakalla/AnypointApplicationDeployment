@@ -3,7 +3,7 @@ var http = require('https'),
     FormData = require('form-data'),
     fs = require('fs'),
     task = require('vsts-task-lib/task');
-
+var promotObj = {};
 // * * * LOGIN * * * //
 var BEARER_TOKEN = undefined;
 var BASIC_AUTH = undefined;
@@ -52,7 +52,7 @@ exports.createNewApp = function(domainName, filePath, workerOptions, autoStart) 
     form.append('appInfoJson', JSON.stringify(workerOptions));
     form.append('autoStart', autoStart || 'true');
     form.append('file', fs.createReadStream(filePath));
-    return createRequest('POST', path, form, form.getHeaders(), 'basic');
+    return createRequest('POST', path, form, form.getHeaders(), 'bearer');
 }
 
 exports.setProperties = function() {
@@ -66,9 +66,36 @@ exports.setProperties = function() {
 
 exports.getApplication = function(domainName) {
     var path = '/cloudhub/api/v2/applications/' + domainName;
-    return createRequest('GET', path, undefined, undefined, 'basic')
+    return createRequest('GET', path, undefined, undefined, 'bearer')
 }
 
+exports.getApplications = function(env_id,org_id){
+    console.log("in get applications method with the env_id as: " + env_id + 'and the org_id as: ' + org_id);
+    var path = '/apimanager/api/v1/organizations/'+org_id+'/environments/'+env_id+'/apis';
+    console.log("path: " + path);
+    return createRequest('GET', path, undefined, undefined, 'bearer');
+}
+
+exports.promtApi = function(apiId,org_id,targetEnvId){
+    console.log("in the promtApi method");
+    promotObj = {
+        "promote" : {
+            "originApiId" : Number(apiId),
+            "policies" : {
+                "allEntities" : true
+            },
+            "tiers" : {
+                "allEntities" : true
+            },
+            "alerts" : {
+                "allEntities": true
+            }
+        }
+    }
+    var path = '/apimanager/api/v1/organizations/'+ org_id +'/environments/' + targetEnvId +'/apis'
+    console.log("path" + path);
+    return createRequest('POST', path, promotObj,undefined, 'bearer',undefined);
+}
 
 
 function createRequest(method, path, body, headers, authType, noResponse) {
@@ -85,11 +112,15 @@ function createRequest(method, path, body, headers, authType, noResponse) {
     if (isJsonBody) {
         options.headers['Content-Type'] = 'application/json';
     }
-    
     return new Promise(function(success, failure) {
+
         var req = http.request(options);
-        if (isJsonBody)
-                req.write(JSON.stringify(body));
+        console.log(body);
+        if (isJsonBody){
+            //console.log(JSON.stringify(body));
+            req.write(JSON.stringify(body));
+        }
+        
         else if (isFormBody)
             body.pipe(req);
         
@@ -104,6 +135,7 @@ function createRequest(method, path, body, headers, authType, noResponse) {
                     });
                     response.on('end', function(){
                         var parsedBody = JSON.parse(responseBody);
+                        //console.log(parsedBody);
                         success(parsedBody);
                     });
                 }
@@ -115,6 +147,7 @@ function createRequest(method, path, body, headers, authType, noResponse) {
                 success(undefined);
             }
             else {
+                console.log(response);
                 failure(response);
             }
         });
