@@ -13,7 +13,10 @@ var org_id;
 var env_props = {};
 var targetEnvId;
 var sourceEnvId;
-
+var apiId;
+var newApiId;
+var isApiInManager = false;
+var createAPIMGRObj = {};
 
 task._writeLine('Authenticating credentials with AnyPoint Platform...');
 cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).then(tokenResponse => {
@@ -39,34 +42,16 @@ cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).
     cloudhubService.setEnvironmentId(environmentId);
     
     task._writeLine('Getting application status for ' + config.domainname);
-    return cloudhubService.getApplications(env_id,org_id);
-      
-})
-.then(function(applicationRespose) {
-   var appStatus =  getAppDetails(applicationRespose);
-    if (appStatus) {
-        task._writeLine('Application found!');
-        task._writeLine('Redeploying...');
-        return cloudhubService.deployApp(config.domainname, config.zipfilepath);
-    }
-    else {
-        task._writeLine('Application not found!');
-        task._writeLine('Creating new application...');
-        //var newAppInfo = getNewAppInfo();
-        return cloudhubService.createNewApp(config.domainname, config.zipfilepath, config.appInfo, config.autostart);
-    }
-})
-.then(function(deployResponse) {
-    if (config.autostart.toLowerCase() == 'true') {
-        getStatus(config.domainname);
-    }
-    else {
-        task.setResult(task.TaskResult.Succeeded, 'Application has been created successfully, but must be manually started.');
-    }
+    //return cloudhubService.getApplications(env_id,org_id);
+    console.log(environmentId);
+   // return cloudhubService.getApplication(config.domainname);
+     return "" 
 }).then(function(){
     if(config.apiAutoDiscoveryID != null || config.apiAutoDiscoveryID != ""){
         console.log("init API promotion started for the API:" + config.apiAutoDiscoveryID);
         //getAppDetails(cloudhubService.getApplications(env_id,org_id));
+        console.log("sourceEnvId" + sourceEnvId);
+        console.log("org_id" + org_id);
         return cloudhubService.getApplications(sourceEnvId,org_id);
         //promtApi();
     }else{
@@ -76,9 +61,88 @@ cloudhubService.getBearerTokenAndSetBasicAuth(config.username, config.password).
 }).then(function(applicationResponse){
     getAppDetails(applicationResponse);
     //promtApi();
+    console.log(apiId);
+    if((apiId != null || apiId != undefined) )
+    {
+        isApiInManager = true;
+
+    }else {
+        isApiInManager = false;
+        if(config.environmentname == "Development"){
+            createAPIMGRObj = {
+                "endpoint" : {
+                    "type" : "rest-api",
+                    "uri" : " ",
+                    "proxyUri" : null,
+                    "muleVersion4OrAbove" : true,
+                    "isCloudHub" : true
+                },
+                "spec": {
+                    "assetId": config.exchangeAssetName,
+                    "version": "1.0.0",
+                    "groupId": org_id
+                  }
+            }
+            console.log(createAPIMGRObj)
+            return cloudhubService.getApiFromExchange(createAPIMGRObj,org_id,env_props.development);
+
+            clientIdEnforcementObj = {
+                "configurationData": {
+                   "clusterizable":true,
+                   "exposeHeader":true,
+                      "rateLimits": [] 
+                  },
+                "pointcutData":null,
+                "policyTemplateId":"client-id-enforcement",
+                "assetId":config.exchangeAssetName,
+                "assetVersion":"1.0.0",
+                "groupId": org_id
+             }
+
+        }
+    }
+    console.log(isApiInManager);
+
+    if(config.environmentname != "Development")
     return cloudhubService.promtApi(config.apiAutoDiscoveryID,org_id,env_id);
-}).then(function(){
+    //else return ""
+}).then(function(exchangeResponse){
     console.log("END!!");
+    //console.log(exchangeResponse.id);
+    if(!isApiInManager)
+    newApiId = exchangeResponse.id;
+   return cloudhubService.getApplication(config.domainname);
+})
+.then(function(appStatus) {
+    console.log(appStatus);
+   //var appStatus =  getAppDetails(applicationRespose);
+   if(appStatus != 403){
+    if (appStatus) {
+        task._writeLine('Application found!');
+        task._writeLine('Redeploying...');
+        return cloudhubService.deployApp(config.domainname, config.zipfilepath);
+    }
+    else {
+        task._writeLine('Application not found!');
+        task._writeLine('Creating new application...');
+        //var newAppInfo = getNewAppInfo();
+        config.appInfo.properties.apiId = newApiId
+        console.log(config.appInfo);
+        return cloudhubService.createNewApp(config.domainname, config.zipfilepath, config.appInfo, config.autostart);
+    }
+   }else {
+    task.setResult(task.TaskResult.Failed, "Name conflict occured while deploying the application to");   
+    //task.error("Name conflict occured while deploying the application to " + config.environmentname);
+   }
+
+})
+.then(function(deployResponse) {
+    if (config.autostart.toLowerCase() == 'true') {
+        getStatus(config.domainname);
+    }
+    else {
+        task.setResult(task.TaskResult.Succeeded, 'Application has been created successfully, but must be manually started.');
+    }
 })
 .catch(function(error){
     console.log('GLOBAL ERROR HANDLER');
@@ -98,6 +162,11 @@ function getSpecifiedEnvironmentId(environments, environmentNameToFind) {
     }
     if(specifiedEnvName == "uat"){
         sourceEnvId = env_props.development;
+        //cloudhubService.setEnvironmentId(sourceEnvId);
+    }
+    if(specifiedEnvName == "development"){
+        sourceEnvId = env_props.development;
+        //cloudhubService.setEnvironmentId(sourceEnvId);
     }
     
     for (var i = 0; i < environments.length; i++) {
@@ -115,13 +184,20 @@ function getSpecifiedEnvironmentId(environments, environmentNameToFind) {
 }
 
 function getAppDetails(applications){
+    console.log(applications);
     console.log("in the get app details methos with the application response as: " + JSON.stringify(applications));
-
+    console.log(applications.assets.length);
+    var status;
     for(var i = 0; i < applications.assets.length; i++){
         for(var j = 0; j < applications.assets[i].apis.length; j++){
-            console.log(applications.assets[i].apis[j].id);
-            console.log(config.apiAutoDiscoveryID);
-            if(applications.assets[i].apis[j].id == config.apiAutoDiscoveryID){
+            console.log(applications.assets[i].apis.length);
+            console.log(applications.assets[i].apis[j].assetId);
+            console.log(config.assetId);
+            if(applications.assets[i].apis[j].assetId == config.exchangeAssetName){
+                //isApiInManager = true;
+                apiId = applications.assets[i].apis[j].id;
+                console.log("Application found in the getAppDetails");
+                console.log(applications.assets[i].apis[j].id);
                 if(config.environmentname == "Development"){
                     targetEnvId = env_props.uat
                 }
@@ -132,8 +208,6 @@ function getAppDetails(applications){
                     targetEnvId = env_props.production
                 }
                 return true;
-            }else {
-                return false;
             }
         }
     }
@@ -143,6 +217,9 @@ function getAppDetails(applications){
     console.log("dev_env" + ' ' + env_props.development);
     console.log("production_env" + ' ' + env_props.production);
     console.log("target_env_id" + ' ' + targetEnvId);
+
+    //return status;
+
 }
 
 function promtApi(apiId,org_id,targetEnvId){
@@ -228,7 +305,8 @@ function getConfiguration() {
         'workersize': task.getInput('workersize', false),
         'muleversion': task.getInput('muleversion'),
         'autostart': task.getInput('autostart') || 'true',
-        'apiAutoDiscoveryID' : task.getInput('apiAutoDiscoveryID')
+        'apiAutoDiscoveryID' : task.getInput('apiAutoDiscoveryID'),
+        'exchangeAssetName' : task.getInput('exchangeAssetName')
     };
     toReturn['appInfo'] = getNewAppInfo(domainName);
     return toReturn;

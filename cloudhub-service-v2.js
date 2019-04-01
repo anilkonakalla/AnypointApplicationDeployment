@@ -76,6 +76,12 @@ exports.getApplications = function(env_id,org_id){
     return createRequest('GET', path, undefined, undefined, 'bearer');
 }
 
+exports.getApiFromExchange = function(createAPIMGRObj,org_id,env_id){
+    var path = '/apimanager/api/v1/organizations/'+ org_id +'/environments/' + env_id +'/apis'
+    console.log("path" + path);
+    return createRequest('POST', path, createAPIMGRObj,undefined, 'bearer',undefined);
+}
+
 exports.promtApi = function(apiId,org_id,targetEnvId){
     console.log("in the promtApi method");
     promotObj = {
@@ -90,12 +96,19 @@ exports.promtApi = function(apiId,org_id,targetEnvId){
             "alerts" : {
                 "allEntities": true
             }
-        }
+        },
+        "endpoint": {
+            "uri":"http://lsu-test-promote-app.us-e1.cloudhub.io/",
+            "proxyUri":"http://0.0.0.0:8081/",
+            "isCloudHub":true
+          }
     }
     var path = '/apimanager/api/v1/organizations/'+ org_id +'/environments/' + targetEnvId +'/apis'
     console.log("path" + path);
     return createRequest('POST', path, promotObj,undefined, 'bearer',undefined);
 }
+
+
 
 
 function createRequest(method, path, body, headers, authType, noResponse) {
@@ -145,6 +158,9 @@ function createRequest(method, path, body, headers, authType, noResponse) {
             }
             else if (response.statusCode == 404) {
                 success(undefined);
+            }else if (response.statusCode == 403) {
+                //success(response.statusCode);
+                failure("domain name conflict occured while deploying the application");
             }
             else {
                 console.log(response);
